@@ -8,7 +8,7 @@ void toggleLED(void *parameter)
 {
     for (;;)
     { // infinite loop
-        Serial.println(led_interval);
+        //Serial.println(led_interval);
         // Turn the LED on
         digitalWrite(LED_PIN, HIGH);
 
