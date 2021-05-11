@@ -4,8 +4,10 @@
 #include <ESP32CAN.h>
 #include <CAN_config.h>
 
-CAN_device_t CAN_cfg;         // CAN Config
-const int rx_queue_size = 10; // Receive Queue size
+CAN_device_t CAN_cfg;             // CAN Config
+const int rx_queue_size = 10;     // Receive Queue size
+unsigned long previousMillis = 0; // will store last time a CAN Message was send
+const int interval = 1000;        // interval at which send CAN Messages (milliseconds)
 
 File file_log;
 //char message[128];
@@ -24,6 +26,8 @@ tx = GPIO_NUM_14;
 rx = GPIO_NUM_27;
 */
 
+//#define SDCARD
+
 void canbus_setup()
 {
   CAN_cfg.speed = CAN_SPEED_250KBPS;
@@ -32,7 +36,7 @@ void canbus_setup()
   CAN_cfg.rx_queue = xQueueCreate(rx_queue_size, sizeof(CAN_frame_t));
   // Init CAN Module
   ESP32Can.CANInit();
-  Serial.println("cabus initialized");
+  Serial.println("canbus initialized");
 }
 
 void setup()
@@ -40,6 +44,8 @@ void setup()
   Serial.begin(115200);
   led_setup();
   canbus_setup();
+
+#ifdef SDCARD
 
   if (!SD.begin())
   { // use default pinout
@@ -82,12 +88,12 @@ void setup()
   file_log = SD.open(current_filename, FILE_APPEND);
   if (!file_log)
   {
-    Serial.printf("Failed to open %s file for appending\n", (char*)current_filename);
+    Serial.printf("Failed to open %s file for appending\n", (char *)current_filename);
     return;
   }
   else
   {
-    Serial.printf("opened %s file for appending\n", (char*)current_filename);
+    Serial.printf("opened %s file for appending\n", (char *)current_filename);
     file_log.flush();
   }
 
@@ -104,10 +110,12 @@ void setup()
   // testFileIO(SD, "/test.txt");
   Serial.printf("Total space: %lluMB\n", SD.totalBytes() / (1024 * 1024));
   Serial.printf("Used space: %lluMB\n", SD.usedBytes() / (1024 * 1024));
+#endif
 }
 
 void loop()
 {
+  unsigned long currentMillis = millis();
   CAN_frame_t rx_frame;
 
   // Receive next CAN frame from queue
@@ -126,20 +134,49 @@ void loop()
     if (rx_frame.FIR.B.RTR == CAN_RTR)
     {
       printf(" RTR from 0x%08X, DLC %d\r\n", rx_frame.MsgID, rx_frame.FIR.B.DLC);
+#ifdef SDCARD
       file_log.printf("%d 0x%08X %d RTR\n", millis(), rx_frame.MsgID, rx_frame.FIR.B.DLC);
+#endif
     }
     else
     {
-      printf(" from 0x%08X, DLC %d, Data ", rx_frame.MsgID, rx_frame.FIR.B.DLC);
+      Serial.printf(" from 0x%08X, DLC %d, Data ", rx_frame.MsgID, rx_frame.FIR.B.DLC);
+#ifdef SDCARD
       file_log.printf("%d 0x%08X %d ", millis(), rx_frame.MsgID, rx_frame.FIR.B.DLC);
+#endif
       for (int i = 0; i < rx_frame.FIR.B.DLC; i++)
       {
         printf("0x%02X ", rx_frame.data.u8[i]);
+#ifdef SDCARD
         file_log.printf("0x%02X ", rx_frame.data.u8[i]);
+#endif
       }
       printf("\n");
+#ifdef SDCARD
       file_log.printf("\n");
+#endif
     }
+#ifdef SDCARD
     file_log.flush();
+#endif
+  }
+
+  if (currentMillis - previousMillis >= interval)
+  {
+    Serial.println("send frame");
+    previousMillis = currentMillis;
+    CAN_frame_t tx_frame;
+    tx_frame.FIR.B.FF = CAN_frame_std;
+    tx_frame.MsgID = 0x001;
+    tx_frame.FIR.B.DLC = 8;
+    tx_frame.data.u8[0] = 0x00;
+    tx_frame.data.u8[1] = 0x01;
+    tx_frame.data.u8[2] = 0x02;
+    tx_frame.data.u8[3] = 0x03;
+    tx_frame.data.u8[4] = 0x04;
+    tx_frame.data.u8[5] = 0x05;
+    tx_frame.data.u8[6] = 0x06;
+    tx_frame.data.u8[7] = 0x07;
+    ESP32Can.CANWriteFrame(&tx_frame);
   }
 }
